@@ -1,0 +1,83 @@
+Missing wailing sounds when saucer onscreen - can use channel 3 for that.
+
+This is working for adding a fadeout to the notes during the main riff at least (not the playlists of course). Interrupt code is working but we'll need a workspace to do the serious sprite work. If I can do it in the 4 register space at >8388, that's safe to use, or can maybe backup to VDP.
+
+Anyway the next task is to duplicate the sprite table and make sure it still works, then start working on the new higher res one.
+
+-----
+
+0  60E8  0201  li   R1,>bf00               (20)
+0  60EC  D801  movb R1,@>8400              (62)	- mute
+>  60F0  045B  b    *R11      
+
+-----
+
+sound effects on channel 1 (so 8x and 9x)
+Music on channel 2 (so Ax and Bx)
+
+Noise on channel 4 (of course, so Ex and Fx)
+
+-----
+
+console playlists are used for the music
+
+>83CC - address of the sound list to play - played in the game code because sound lists are everything else.
+
+
+VDP >3800 - startup music and crash music (need to see where they are loaded from)
+- Mute audio and set noise to E3 - 7C86 (omits BF, SFX maybe?)
+
+
+Main music:
+
+0  60B6  C041  mov  R1,R1                  (18)
+0  60B8  1305  jeq  >60c4                  (12)
+0  60BA  D832  movb *R2+,@>8400            (72) - music playback
+         8400
+>  60BE  0589  inc  R9                    
+   60C0  0601  dec  R1                    
+   60C2  10F9  jmp  >60b6   
+
+Interrupt init:
+0  6154  0200  li   R0,>6076               (20)
+         6076
+0  6158  C800  mov  R0,@>83c4              (30)
+
+
+Main theme starts from >7EA4
+
+------
+
+Increase from 2 pages to 4 pages.
+
+>6000 - banks MoonPatC
+>6002 - banks MoonPatD
+>6004 - new bank (MoonPatE)
+>6006 - unused
+
+Real workspace at >8350
+Workspace from >8388-838F (4 words)
+
+>8388 - contains the volume byte for music - if it's not 0xBF, increment towards that.
+>8389 - byte interrupt counter for various things
+>838A - save word for registers
+>838C - byte drum beat counter (0-
+>838D - byte init check (00 = no init, ff = init)
+
+MoonPatC
+--------
+(see code)
+
+MoonPatD
+--------
+(see code)
+
+MoonPatE
+--------
+
+* cartridge header
+0000:	AA FF 00 00 00 00 60 10 00 00 00 00 00 00 00 00
+	00 00 60 F6 0B 4D 4F 4F 4E 20 50 41 54 52 4F 4C
+	E4 00 FB FC FD FE 00 00 00 00
+
+(see code)

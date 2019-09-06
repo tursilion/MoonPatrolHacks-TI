@@ -1,0 +1,184 @@
+**** TODO: (game hack) fix jump:
+*	- need to jump properly, not levitate
+*	- need to keep forward/backward momentum during the jump
+
+
+* MoonPatC
+ AORG >60BA
+ MOVB *R2+,R6 	* get byte - R6 needs to contain >8800 on return!
+ B @>7FF8	* to new page hook
+
+ AORG >6106
+ LI R0,>6000    * new page value (was 6020)
+
+ AORG >6154
+ LI R0,>7FE8 * hook to new interrupt
+
+* return from interrupt
+ AORG >7FE0
+ CLR @>6000
+ B @>6076
+
+* call to interrupt
+ AORG >7FE8
+ CLR @>6004
+ B @>6F90
+ 
+* return from first music hook
+ AORG >7FF0
+ CLR @>6000
+ B @>60C0
+ 
+* Call to first music hook
+ AORG >7FF8
+ CLR @>6004
+ B @>6100
+
+
+*MoonPatD
+
+ AORG >6102
+ LI R0,>6002 * page hook - is 6022 in original
+ 
+ AORG >7C40
+ MOV *r11+,R3  * bugfix - was just MOV R11 before... 
+
+*MoonPatE
+
+* cartridge header
+ AORG >6000
+*AA,FF,00,00,00,00,60 10 00 00 00 00 00 00 00 00
+*00 00 60 F6 0B 4D 4F 4F 4E 20 50 41 54 52 4F 4C
+
+* startup code
+ AORG >60F6
+ CLR @>6000	* sets bank and then falls into MoonPatD's start code
+
+* music hook 1 - main tune (?)
+* receive music in R6, write B8 on any note change.
+* I think we can act specifically on >Bx. Restore R6 to >8800 on return
+ AORG >6100
+	INC R9         * inc r9 like the code we patched
+	MOVB R8,@>838a * save R8 byte
+
+	MOVB R6,R8	* make a copy
+	ANDI R8,>F000	* mask the copy
+	CI R8,>A000	* is it channel 2 note?
+	JNE skip1	* skip if no
+	LI R8,>B800	* force volume
+	MOVB R8,@>8388	* save if yes
+skip1
+	MOVB R6,@>8400	* write to sound chip either way
+	LI R6,>8800     * fix R6
+	MOVB @>838a,r8  * fix R8 byte
+	B @>7FF0	* back to caller hook
+
+
+* new interrupt routine
+* - process volume byte at >8388 and increment towards 0xBF, applying to sound
+* - on entry values are pretty fixed! WP is >83E0 so it's GPLWS
+*
+* R 0  4100 - saved and restored
+* R 1  0000
+* R 2  0000
+* R 3  3811
+* R 4  60F6
+* R 5  FF02
+* R 6  8800
+* R 7  06BA
+* R 8  0000 - scratched, always zeroed on return
+* R 9  FFFF - varies, music playing? mov r9,r9 / jlt not playing
+* R10  0800
+* R11  0AB8 - fixed CPU return address (can be used if restored)
+* R12  7FE8 - address of interrupt routine (can be used if restored or explicit jump back)
+* R13  9800 - GROM access address (can be used if restored)
+* R14  0109 - MSB needed for interrupt timer (system flags? But seems the 01 MSB can be counted on)
+* R15  8C02 - VDP access address (can be used if restored)
+
+* entry point - check for initialization
+ aorg >6f90
+	movb @>838d,r8
+	jne doneinit
+
+* do some basic initialization here
+	li r8,>01FF
+	mov r8,@>838c
+
+*** TODO: disable the console processing for sprites and sound lists
+
+	jmp doneinit
+
+
+ AORG >7000
+doneinit
+	mov r0,@>838a   * save R0
+        CLR R0		* prepare to receive byte
+
+	mov r9,r9	* test if music is playing
+	jlt nomusic
+
+	ab r14,@>8389	* increment interrupt count
+
+	movb @>8389,r0	* get byte
+	andi r0,>0100	* every other frame
+	jeq skip2	* don't fade audio yet	
+
+	MOVB @>8388,R0	* get audio volume byte
+	JEQ skip2	* if it's never been initted it's zero
+	CI R0,>BF00	* is it muted?
+	JEQ skip2	* yes, skip
+	AI R0,>0100	* no, increment
+	MOVB R0,@>8388	* save the value
+	MOVB R0,@>8400	* and write to the sound chip
+skip2	
+
+* play the drumbeat
+	sb r14,@>838c	* decrement count
+	movb @>838c,r8	* get byte
+	jne notnew	* when we wrap, we start over
+	li r8,>0800	* new value
+	movb r8,@>838c	* save it
+notnew
+	srl r8,8	* make an index
+	movb @>6022(r8),r0	* 8-entry drumbeat table at >6022 (0 means mute)
+	jne skip4	* go to mute if its zero
+skip3
+nomusic
+	mov @>6020,@>8400 * force noise type from noise byte at >6020
+	li r0,>ff00	* muted
+skip4
+	movb r0,@>8400
+
+**** TODO: read the console music playlist selected and play our one channel 1/4 playlist
+****	   code will set a new playlist at 0x83CC (VDP address) and set 0x83CE to non-zero
+****       We can clear 0x83CC to detect new writes, and we should zero 0x83CE when done.
+***        Note noises played on channel 4 will overwrite the drumbeat, that's okay
+
+**** TODO: sprite list processing
+
+
+	mov @>838a,r0  * fix R0
+    B @>7FE0	* go back to the real interrupt
+
+* return from interrupt
+ AORG >7FE0
+ CLR @>6000
+      B @>6076
+      
+* call to interrupt
+ AORG >7FE8
+ CLR @>6004
+      B @>6F90
+      
+* return from first music hook
+ AORG >7FF0
+ CLR @>6000
+      B @>60C0
+      
+* Call to first music hook
+ AORG >7FF8
+ CLR @>6004
+      B @>6100
+
+	END
+	
